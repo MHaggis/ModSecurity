@@ -1,0 +1,186 @@
+name: Build IIS Module
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build configuration'
+        required: true
+        default: 'Release'
+        type: choice
+        options:
+        - Release
+        - Debug
+        - RelWithDebInfo
+      architecture:
+        description: 'Target architecture'
+        required: true
+        default: 'x86_64'
+        type: choice
+        options:
+        - x86_64
+        - x86
+
+jobs:
+  build-iis-module:
+    name: Build IIS Module (${{ matrix.configuration }}, ${{ matrix.architecture }})
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        configuration: [Release, RelWithDebInfo]
+        architecture: [x86_64]
+        include:
+          - configuration: Release
+            architecture: x86_64
+            artifact_name: libModSecurity-Release-x64
+          - configuration: RelWithDebInfo
+            architecture: x86_64
+            artifact_name: libModSecurity-RelWithDebInfo-x64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Install Conan
+        run: |
+          pip3 install conan==2.10.2 --upgrade
+          conan profile detect --force
+
+      - name: Build ModSecurity
+        shell: cmd
+        run: |
+          vcbuild.bat ${{ matrix.configuration }} ${{ matrix.architecture }}
+
+      - name: Create release package
+        shell: cmd
+        working-directory: build\win32\build\${{ matrix.configuration }}
+        run: |
+          echo Creating release package for ${{ matrix.artifact_name }}
+          mkdir ${{ matrix.artifact_name }}
+          copy libModSecurity.dll ${{ matrix.artifact_name }}/
+          copy libModSecurity.lib ${{ matrix.artifact_name }}/
+          copy libModSecurity.exp ${{ matrix.artifact_name }}/
+          
+          rem Copy dependencies if they exist
+          if exist "*.dll" copy *.dll ${{ matrix.artifact_name }}/
+          
+          rem Create README with build info
+          echo ModSecurity IIS Module Build > ${{ matrix.artifact_name }}/README.txt
+          echo ============================== >> ${{ matrix.artifact_name }}/README.txt
+          echo. >> ${{ matrix.artifact_name }}/README.txt
+          echo Build Date: %date% %time% >> ${{ matrix.artifact_name }}/README.txt
+          echo Build Configuration: ${{ matrix.configuration }} >> ${{ matrix.artifact_name }}/README.txt
+          echo Architecture: ${{ matrix.architecture }} >> ${{ matrix.artifact_name }}/README.txt
+          echo Git Commit: ${{ github.sha }} >> ${{ matrix.artifact_name }}/README.txt
+          echo. >> ${{ matrix.artifact_name }}/README.txt
+          echo Files included: >> ${{ matrix.artifact_name }}/README.txt
+          echo - libModSecurity.dll: Main library for IIS integration >> ${{ matrix.artifact_name }}/README.txt
+          echo - libModSecurity.lib: Import library for linking >> ${{ matrix.artifact_name }}/README.txt
+          echo - libModSecurity.exp: Export definitions >> ${{ matrix.artifact_name }}/README.txt
+          echo. >> ${{ matrix.artifact_name }}/README.txt
+          echo Installation: >> ${{ matrix.artifact_name }}/README.txt
+          echo 1. Copy libModSecurity.dll to your IIS server >> ${{ matrix.artifact_name }}/README.txt
+          echo 2. Register the DLL with IIS using regsvr32 >> ${{ matrix.artifact_name }}/README.txt
+          echo 3. Configure your web.config to use ModSecurity >> ${{ matrix.artifact_name }}/README.txt
+          echo. >> ${{ matrix.artifact_name }}/README.txt
+          echo For more information, visit: https://github.com/SpiderLabs/ModSecurity >> ${{ matrix.artifact_name }}/README.txt
+
+      - name: Upload IIS Module Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: build\win32\build\${{ matrix.configuration }}\${{ matrix.artifact_name }}
+          retention-days: 30
+
+      - name: Create Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: ModSecurity IIS Module ${{ github.ref_name }}
+          body: |
+            ## ModSecurity IIS Module ${{ github.ref_name }}
+            
+            This release includes the ModSecurity IIS module built for Windows Server 2019/2022.
+            
+            ### Downloads
+            - [libModSecurity-Release-x64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/libModSecurity-Release-x64.zip)
+            
+            ### Installation
+            1. Download the appropriate zip file for your architecture
+            2. Extract the files to your IIS server
+            3. Register the DLL: `regsvr32 libModSecurity.dll`
+            4. Configure your web.config to use ModSecurity
+            
+            ### Build Information
+            - Build Date: ${{ github.event.head_commit.timestamp }}
+            - Commit: ${{ github.sha }}
+            - Architecture: x86_64
+            - Configuration: Release
+            
+            ### Features
+            - Full ModSecurity 3.0 functionality
+            - Support for all ModSecurity rules
+            - Compatible with Windows Server 2019/2022
+            - Includes all optional dependencies (Lua, libxml2, libcurl, etc.)
+          draft: false
+          prerelease: false
+
+  build-debug:
+    name: Build Debug Version
+    runs-on: windows-2022
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'Debug'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Install Conan
+        run: |
+          pip3 install conan==2.10.2 --upgrade
+          conan profile detect --force
+
+      - name: Build ModSecurity Debug
+        shell: cmd
+        run: |
+          vcbuild.bat Debug x86_64
+
+      - name: Create debug package
+        shell: cmd
+        working-directory: build\win32\build\Debug
+        run: |
+          mkdir libModSecurity-Debug-x64
+          copy libModSecurity.dll libModSecurity-Debug-x64/
+          copy libModSecurity.lib libModSecurity-Debug-x64/
+          copy libModSecurity.exp libModSecurity-Debug-x64/
+          
+          if exist "*.dll" copy *.dll libModSecurity-Debug-x64/
+          
+          echo ModSecurity IIS Module Debug Build > libModSecurity-Debug-x64/README.txt
+          echo ================================== >> libModSecurity-Debug-x64/README.txt
+          echo. >> libModSecurity-Debug-x64/README.txt
+          echo Build Date: %date% %time% >> libModSecurity-Debug-x64/README.txt
+          echo Build Configuration: Debug >> libModSecurity-Debug-x64/README.txt
+          echo Architecture: x86_64 >> libModSecurity-Debug-x64/README.txt
+          echo Git Commit: ${{ github.sha }} >> libModSecurity-Debug-x64/README.txt
+          echo. >> libModSecurity-Debug-x64/README.txt
+          echo NOTE: This is a DEBUG build with additional debugging information. >> libModSecurity-Debug-x64/README.txt
+          echo For production use, use the Release build instead. >> libModSecurity-Debug-x64/README.txt
+
+      - name: Upload Debug Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libModSecurity-Debug-x64
+          path: build\win32\build\Debug\libModSecurity-Debug-x64
+          retention-days: 30 
