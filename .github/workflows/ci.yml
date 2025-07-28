@@ -185,6 +185,47 @@ jobs:
         working-directory: build\win32\build
         run: |
           ctest -C ${{ matrix.configuration }} --output-on-failure
+      
+      - name: Create IIS Module Artifact
+        if: matrix.configure.label == 'full'
+        shell: cmd
+        working-directory: build\win32\build\${{ matrix.configuration }}
+        run: |
+          echo Creating IIS Module package...
+          mkdir libModSecurity-IIS-Module
+          copy libModSecurity.dll libModSecurity-IIS-Module\
+          copy libModSecurity.lib libModSecurity-IIS-Module\
+          copy libModSecurity.exp libModSecurity-IIS-Module\
+          
+          if exist "*.dll" copy *.dll libModSecurity-IIS-Module\
+          
+          echo ModSecurity IIS Module Build > libModSecurity-IIS-Module\README.txt
+          echo ============================== >> libModSecurity-IIS-Module\README.txt
+          echo. >> libModSecurity-IIS-Module\README.txt
+          echo Build Date: %date% %time% >> libModSecurity-IIS-Module\README.txt
+          echo Build Configuration: ${{ matrix.configuration }} >> libModSecurity-IIS-Module\README.txt
+          echo Architecture: ${{ matrix.platform.arch }} >> libModSecurity-IIS-Module\README.txt
+          echo Git Commit: ${{ github.sha }} >> libModSecurity-IIS-Module\README.txt
+          echo. >> libModSecurity-IIS-Module\README.txt
+          echo Files included: >> libModSecurity-IIS-Module\README.txt
+          echo - libModSecurity.dll: Main library for IIS integration >> libModSecurity-IIS-Module\README.txt
+          echo - libModSecurity.lib: Import library for linking >> libModSecurity-IIS-Module\README.txt
+          echo - libModSecurity.exp: Export definitions >> libModSecurity-IIS-Module\README.txt
+          echo. >> libModSecurity-IIS-Module\README.txt
+          echo Installation: >> libModSecurity-IIS-Module\README.txt
+          echo 1. Copy libModSecurity.dll to your IIS server >> libModSecurity-IIS-Module\README.txt
+          echo 2. Register the DLL with IIS using regsvr32 >> libModSecurity-IIS-Module\README.txt
+          echo 3. Configure your web.config to use ModSecurity >> libModSecurity-IIS-Module\README.txt
+          echo. >> libModSecurity-IIS-Module\README.txt
+          echo For more information, visit: https://github.com/SpiderLabs/ModSecurity >> libModSecurity-IIS-Module\README.txt
+      
+      - name: Upload IIS Module Artifact
+        if: matrix.configure.label == 'full'
+        uses: actions/upload-artifact@v4
+        with:
+          name: libModSecurity-IIS-Module-${{ matrix.configuration }}-${{ matrix.platform.arch }}
+          path: build\win32\build\${{ matrix.configuration }}\libModSecurity-IIS-Module
+          retention-days: 30
 
   cppcheck:
     runs-on: [macos-14]
